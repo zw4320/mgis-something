@@ -3,12 +3,43 @@ let coursesData = [];
 let mySchedule = [];
 let currentFilter = 'All';
 
+// Time slots for courses (realistic university schedule)
+const timeSlots = [
+    { days: 'MW', time: '8:00 AM - 9:15 AM', start: 800, end: 915 },
+    { days: 'MW', time: '9:30 AM - 10:45 AM', start: 930, end: 1045 },
+    { days: 'MW', time: '11:00 AM - 12:15 PM', start: 1100, end: 1215 },
+    { days: 'MW', time: '12:30 PM - 1:45 PM', start: 1230, end: 1345 },
+    { days: 'MW', time: '2:00 PM - 3:15 PM', start: 1400, end: 1515 },
+    { days: 'MW', time: '3:30 PM - 4:45 PM', start: 1530, end: 1645 },
+    { days: 'TR', time: '8:00 AM - 9:15 AM', start: 800, end: 915 },
+    { days: 'TR', time: '9:30 AM - 10:45 AM', start: 930, end: 1045 },
+    { days: 'TR', time: '11:00 AM - 12:15 PM', start: 1100, end: 1215 },
+    { days: 'TR', time: '12:30 PM - 1:45 PM', start: 1230, end: 1345 },
+    { days: 'TR', time: '2:00 PM - 3:15 PM', start: 1400, end: 1515 },
+    { days: 'TR', time: '3:30 PM - 4:45 PM', start: 1530, end: 1645 },
+    { days: 'F', time: '9:00 AM - 11:45 AM', start: 900, end: 1145 },
+    { days: 'F', time: '12:00 PM - 2:45 PM', start: 1200, end: 1445 },
+];
+
+// Assign random but consistent time slots to courses
+function assignTimeSlots(courses) {
+    return courses.map(course => {
+        // Use course code to generate consistent random index
+        const hash = course.courseCode.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const timeSlot = timeSlots[hash % timeSlots.length];
+        return {
+            ...course,
+            schedule: timeSlot
+        };
+    });
+}
+
 // Load courses from JSON file
 async function loadCourses() {
     try {
         const response = await fetch('rit_courses.json');
         const data = await response.json();
-        coursesData = data.courses;
+        coursesData = assignTimeSlots(data.courses);
         initializeApp();
     } catch (error) {
         console.error('Error loading courses:', error);
@@ -93,12 +124,86 @@ function displayCourses(courses) {
     `).join('');
 }
 
+// Check if prerequisites are met
+function checkPrerequisites(course) {
+    if (course.prerequisites.length === 0) {
+        return { met: true, missing: [] };
+    }
+    
+    const scheduledCourseCodes = mySchedule.map(c => c.courseCode);
+    const missingPrereqs = course.prerequisites.filter(prereq => !scheduledCourseCodes.includes(prereq));
+    
+    return {
+        met: missingPrereqs.length === 0,
+        missing: missingPrereqs
+    };
+}
+
+// Check for time conflicts
+function hasTimeConflict(newCourse) {
+    for (let scheduledCourse of mySchedule) {
+        // Check if days overlap
+        const newDays = newCourse.schedule.days.split('');
+        const scheduledDays = scheduledCourse.schedule.days.split('');
+        const daysOverlap = newDays.some(day => scheduledDays.includes(day));
+        
+        if (daysOverlap) {
+            // Check if times overlap
+            const newStart = newCourse.schedule.start;
+            const newEnd = newCourse.schedule.end;
+            const schedStart = scheduledCourse.schedule.start;
+            const schedEnd = scheduledCourse.schedule.end;
+            
+            const timeOverlap = (newStart < schedEnd && newEnd > schedStart);
+            
+            if (timeOverlap) {
+                return {
+                    conflict: true,
+                    conflictWith: scheduledCourse
+                };
+            }
+        }
+    }
+    
+    return { conflict: false };
+}
+
 // Show course details in modal
 function showCourseDetails(courseId) {
     const course = coursesData.find(c => c.id === courseId);
     if (!course) return;
     
     const isInSchedule = mySchedule.some(c => c.id === courseId);
+    const prereqCheck = checkPrerequisites(course);
+    const conflictCheck = hasTimeConflict(course);
+    
+    let validationMessage = '';
+    let canAdd = !isInSchedule;
+    
+    if (!prereqCheck.met) {
+        canAdd = false;
+        validationMessage = `
+            <div class="modal-section validation-warning">
+                <div class="modal-section-title">⚠️ Prerequisites Not Met</div>
+                <div class="modal-section-content">
+                    You must complete these courses first: <strong>${prereqCheck.missing.join(', ')}</strong>
+                </div>
+            </div>
+        `;
+    }
+    
+    if (conflictCheck.conflict && !isInSchedule) {
+        canAdd = false;
+        validationMessage += `
+            <div class="modal-section validation-error">
+                <div class="modal-section-title">🚫 Time Conflict</div>
+                <div class="modal-section-content">
+                    This course conflicts with <strong>${conflictCheck.conflictWith.courseCode}</strong> 
+                    (${conflictCheck.conflictWith.schedule.days} ${conflictCheck.conflictWith.schedule.time})
+                </div>
+            </div>
+        `;
+    }
     
     const modalBody = document.getElementById('modalBody');
     modalBody.innerHTML = `
@@ -111,6 +216,14 @@ function showCourseDetails(courseId) {
                 <span class="badge badge-department">${course.department}</span>
                 <span class="badge badge-department">${course.credits} Credits</span>
                 <span class="badge badge-department">Level ${course.level}</span>
+            </div>
+        </div>
+        
+        <div class="modal-section">
+            <div class="modal-section-title">🕐 Schedule</div>
+            <div class="modal-section-content">
+                <span class="badge badge-term">${course.schedule.days}</span>
+                <span class="badge badge-term">${course.schedule.time}</span>
             </div>
         </div>
         
@@ -135,10 +248,12 @@ function showCourseDetails(courseId) {
             </div>
         </div>
         
+        ${validationMessage}
+        
         <button class="add-to-schedule-btn" 
                 onclick="addToSchedule('${course.id}')"
-                ${isInSchedule ? 'disabled' : ''}>
-            ${isInSchedule ? '✓ Already in Schedule' : '+ Add to My Schedule'}
+                ${!canAdd ? 'disabled' : ''}>
+            ${isInSchedule ? '✓ Already in Schedule' : canAdd ? '+ Add to My Schedule' : '✗ Cannot Add to Schedule'}
         </button>
     `;
     
@@ -152,6 +267,20 @@ function addToSchedule(courseId) {
     
     // Check if already in schedule
     if (mySchedule.some(c => c.id === courseId)) {
+        return;
+    }
+    
+    // Check prerequisites
+    const prereqCheck = checkPrerequisites(course);
+    if (!prereqCheck.met) {
+        alert(`Cannot add course. Missing prerequisites: ${prereqCheck.missing.join(', ')}`);
+        return;
+    }
+    
+    // Check time conflicts
+    const conflictCheck = hasTimeConflict(course);
+    if (conflictCheck.conflict) {
+        alert(`Cannot add course. Time conflict with ${conflictCheck.conflictWith.courseCode} (${conflictCheck.conflictWith.schedule.days} ${conflictCheck.conflictWith.schedule.time})`);
         return;
     }
     
@@ -194,6 +323,7 @@ function updateScheduleDisplay() {
                 <div class="schedule-item-credits">${course.credits} CR</div>
             </div>
             <div class="schedule-item-title">${course.title}</div>
+            <div class="schedule-time">${course.schedule.days} ${course.schedule.time}</div>
             <button class="remove-btn" onclick="removeFromSchedule('${course.id}')">Remove</button>
         </div>
     `).join('');
