@@ -53,6 +53,7 @@ function initializeApp() {
     createFilterButtons();
     displayCourses(coursesData);
     setupEventListeners();
+    updateCalendar(); // Initialize empty calendar
 }
 
 // Extract unique departments from courses
@@ -313,6 +314,7 @@ function updateScheduleDisplay() {
     if (mySchedule.length === 0) {
         scheduleContent.innerHTML = '<div class="schedule-empty">Add courses to build your schedule</div>';
         totalCreditsDiv.style.display = 'none';
+        updateCalendar(); // Update calendar when empty
         return;
     }
     
@@ -332,6 +334,75 @@ function updateScheduleDisplay() {
     const totalCredits = mySchedule.reduce((sum, course) => sum + course.credits, 0);
     creditsCount.textContent = totalCredits;
     totalCreditsDiv.style.display = 'block';
+    
+    // Update calendar
+    updateCalendar();
+}
+
+// Generate calendar view
+function updateCalendar() {
+    const calendarView = document.getElementById('calendarView');
+    
+    if (mySchedule.length === 0) {
+        calendarView.innerHTML = '<div class="calendar-empty">Your schedule will appear here</div>';
+        return;
+    }
+    
+    // Define time slots for the calendar
+    const timeSlots = [
+        { label: '8:00 AM', start: 800, end: 900 },
+        { label: '9:00 AM', start: 900, end: 1000 },
+        { label: '10:00 AM', start: 1000, end: 1100 },
+        { label: '11:00 AM', start: 1100, end: 1200 },
+        { label: '12:00 PM', start: 1200, end: 1300 },
+        { label: '1:00 PM', start: 1300, end: 1400 },
+        { label: '2:00 PM', start: 1400, end: 1500 },
+        { label: '3:00 PM', start: 1500, end: 1600 },
+        { label: '4:00 PM', start: 1600, end: 1700 }
+    ];
+    
+    const days = ['M', 'T', 'W', 'R', 'F'];
+    const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    
+    let calendarHTML = '<div class="calendar-grid">';
+    
+    // Header row
+    calendarHTML += '<div class="calendar-header">Time</div>';
+    dayNames.forEach(day => {
+        calendarHTML += `<div class="calendar-header">${day}</div>`;
+    });
+    
+    // Time slots
+    timeSlots.forEach(slot => {
+        calendarHTML += `<div class="calendar-time">${slot.label}</div>`;
+        
+        days.forEach((day, dayIndex) => {
+            calendarHTML += '<div class="calendar-cell">';
+            
+            // Find courses for this day and time
+            const coursesInSlot = mySchedule.filter(course => {
+                const courseDays = course.schedule.days.split('');
+                const dayMatch = courseDays.includes(day);
+                const timeMatch = course.schedule.start < slot.end && course.schedule.end > slot.start;
+                return dayMatch && timeMatch;
+            });
+            
+            // Add course blocks
+            coursesInSlot.forEach(course => {
+                calendarHTML += `
+                    <div class="calendar-course" onclick="showCourseDetails('${course.id}')" title="${course.title}">
+                        <span class="calendar-course-code">${course.courseCode}</span>
+                        <span class="calendar-course-title">${course.title}</span>
+                    </div>
+                `;
+            });
+            
+            calendarHTML += '</div>';
+        });
+    });
+    
+    calendarHTML += '</div>';
+    calendarView.innerHTML = calendarHTML;
 }
 
 // Setup event listeners
